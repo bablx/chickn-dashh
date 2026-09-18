@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CHICKEN DASH</title>
+    <style>
+        body { font-family: sans-serif; background: #1a2c38; color: #fff; text-align: center; margin: 0; padding: 20px; }
+        #game-container { position: relative; width: 500px; height: 450px; background: #2f4553; margin: 20px auto; border: 4px solid #4d606e; border-radius: 8px; overflow: hidden; }
+        .lane-container { position: absolute; bottom: 0; left: 0; width: 100%; }
+        .lane { height: 50px; border-bottom: 1px dashed #4d606e; box-sizing: border-box; display: flex; align-items: center; padding: 0 20px; font-size: 12px; color: #5f7585; background: #233542; position: absolute; width: 100%; transition: bottom 0.1s ease-out; }
+        .lane.safe { background: #1d5249; color: #00e5a3; font-weight: bold; }
+        #chicken { position: absolute; bottom: 50px; left: 235px; width: 30px; height: 30px; font-size: 24px; text-align: center; line-height: 30px; z-index: 10; display: block; opacity: 0.4; }
+        .car { position: absolute; width: 40px; height: 25px; font-size: 20px; top: 10px; z-index: 5; }
+        #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(26, 44, 56, 0.9); display: flex; justify-content: center; align-items: center; font-size: 24px; font-weight: bold; color: #00e5a3; z-index: 20; }
+        .stats { font-size: 20px; margin: 10px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h1> Infinite Chicken Runner</h1>
+    <div class="stats">Score: <span id="score" style="color:#00e5a3;">0m</span></div>
+    
+    <div id="game-container">
+        <div id="overlay">⌨️ PRESS ANY ARROW KEY TO START</div>
+        <div id="lane-wrapper" class="lane-container"></div>
+        <div id="chicken">🐔</div>
+    </div>
+
+    <p style="color: #8a9aa5; font-size: 14px;">Tap <b>Left / Right / Up Arrow keys</b> to move. <br>Pressing <b>Up</b> scrolls the world down infinitely!</p>
+
+    <script>
+        const laneWrapper = document.getElementById('lane-wrapper');
+        const chickenIdx = document.getElementById('chicken');
+        const overlay = document.getElementById('overlay');
+        const scoreDisplay = document.getElementById('score');
+        
+        let playerX = 235; 
+        let score = 0;
+        let gameActive = false;
+        let waitingToStart = true;
+        let activeKeys = {};
+        let gameLoopInterval;
+
+        const laneHeight = 50;
+        const totalLanesPool = 12; 
+        let lanesData = [];
+
+        function initLanes() {
+            laneWrapper.innerHTML = '';
+            lanesData = [];
+
+            for (let i = 0; i < totalLanesPool; i++) {
+                let isSafe = (i < 3);
+                let type = isSafe ? 'safe' : 'road';
+                let speed = (Math.random() * 2 + 1.5) * (Math.random() > 0.5 ? 1 : -1);
+
+                let div = document.createElement('div');
+                div.className = `lane ${isSafe ? 'safe' : ''}`;
+                div.style.height = `${laneHeight}px`;
+                div.style.bottom = `${i * laneHeight}px`;
+                div.innerText = isSafe ? '🏁 SAFE ZONE' : `Lane Speed: ${Math.abs(speed).toFixed(1)}`;
+                laneWrapper.appendChild(div);
+
+                lanesData.push({
+                    element: div,
+                    type: type,
+                    speed: speed,
+                    spawnRate: 0.015,
+                    cars: [],
+                    virtualY: i 
+                });
+            }
+        }
+
+        function updateGame() {
+            if (!gameActive) return;
+
+            lanesData.forEach((lane) => {
+                if (lane.type === 'safe') return;
+
+                if (Math.random() < lane.spawnRate && lane.cars.length < 2) {
+                    let direction = lane.speed > 0 ? 1 : -1;
+                    let carNode = document.createElement('div');
+                    carNode.className = 'car';
+                    carNode.innerText = direction === 1 ? '🚗' : '🚙';
+                    carNode.style.left = direction === 1 ? '-40px' : '500px';
+                    
+                    lane.element.appendChild(carNode);
+                    lane.cars.push({ element: carNode, x: direction === 1 ? -40 : 500 });
+                }
+
+                for (let i = lane.cars.length - 1; i >= 0; i--) {
+                    let car = lane.cars[i];
+                    car.x += lane.speed;
+                    car.element.style.left = car.x + 'px';
+
+                    if (lane.virtualY === score + 1) {
+                        if (car.x < playerX + 15 && car.x + 30 > playerX) {
+                            crash();
+                            return;
+                        }
+                    }
+
+                    if (car.x < -60 || car.x > 560) {
+                        car.element.remove();
+                        lane.cars.splice(i, 1);
+                    }
+                }
+            });
+        }
+
+        window.addEventListener('keydown', (e) => {
+            const isArrowKey = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key);
+            
+            if (waitingToStart) {
+                if (isArrowKey) {
+                    e.preventDefault();
+                    startGame();
+                    // Let the initial arrow key register as a step instantly
+                } else {
+                    return; 
+                }
+            }
+
+            if (!gameActive) return;
+            if (activeKeys[e.key]) return; 
+            activeKeys[e.key] = true;
+
+            if (e.key === 'ArrowUp') {
+                score++;
+                scoreDisplay.innerText = score + "m";
+
+                lanesData.forEach((lane) => {
+                    let relativePos = lane.virtualY - score;
+                    lane.element.style.bottom = `${relativePos * laneHeight}px`;
+
+                    if (relativePos < -1) {
+                        lane.virtualY += totalLanesPool; 
+                        lane.type = Math.random() < 0.20 ? 'safe' : 'road';
+                        lane.speed = (Math.random() * 2 + 1.5) * (Math.random() > 0.5 ? 1 : -1);
+                        lane.element.className = `lane ${lane.type === 'safe' ? 'safe' : ''}`;
+                        lane.element.innerText = lane.type === 'safe' ? '🏁 SAFE ZONE' : `Lane Speed: ${Math.abs(lane.speed).toFixed(1)}`;
+                        
+                        lane.cars.forEach(c => c.element.remove());
+                        lane.cars = [];
+                    }
+                });
+            } else if (e.key === 'ArrowLeft' && playerX > 20) {
+                playerX -= 40;
+            } else if (e.key === 'ArrowRight' && playerX < 440) {
+                playerX += 40;
+            }
+            chickenIdx.style.left = playerX + 'px';
+        });
+
+        window.addEventListener('keyup', (e) => { activeKeys[e.key] = false; });
+
+        function startGame() {
+            waitingToStart = false;
+            gameActive = true;
+            score = 0;
+            playerX = 235;
+            chickenIdx.style.left = playerX + 'px';
+            chickenIdx.style.opacity = "1";
+            scoreDisplay.innerText = "0m";
+            overlay.style.display = 'none';
+            gameLoopInterval = setInterval(updateGame, 20); 
+        }
+
+        function crash() {
+            gameActive = false;
+            clearInterval(gameLoopInterval);
+            setTimeout(() => {
+                alert(`💥 CRASHED! You ran into traffic. Final Score: ${score}m`);
+                resetToMenu();
+            }, 10);
+        }
+
+        function resetToMenu() {
+            gameActive = false;
+            waitingToStart = true;
+            activeKeys = {};
+            chickenIdx.style.opacity = "0.4";
+            overlay.innerText = "🎮 GAME OVER! PRESS AN ARROW KEY TO RESTART";
+            overlay.style.display = 'flex';
+            initLanes(); 
+        }
+
+        // Boot setup immediately so everything visuals render under the screen overlay
+        initLanes();
+    </script>
+</body>
+</html>
